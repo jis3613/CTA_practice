@@ -3,11 +3,11 @@
 ## Acknowledgement
 
 This repository is modified version of official implemnetation of the paper: "MECTA: Memory-Economic Continual Test-time Adaptation." Junyuan Hong, Lingjuan Lyu, Jiayu Zhou, and Michael Spranger. ICLR 2023.
-
 All the credits for developing this code goes to the authors of "MECTA: Memory-Economic Continual Test-time Adaptation.".
 [paper](https://openreview.net/forum?id=N92hjSf5NNh) / [code](https://github.com/SonyAI/MECTA)
-
 ###### Copyright 2023, Sony AI, Sony Corporation of America, All rights reserved.
+
+This repository is created to practice continual test-time adaptation for educational use only.
 
 ## Getting Started
 
