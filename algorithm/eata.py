@@ -9,6 +9,7 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.jit
+import wandb
 
 import math
 import torch.nn.functional as F
@@ -52,7 +53,7 @@ class EATA(AdaptableModule):
             self.reset()
         if self.steps > 0:
             for _ in range(self.steps):
-                outputs, num_counts_2, num_counts_1, updated_probs = forward_and_adapt_eata(x, self.model, self.optimizer, self.fishers, self.e_margin, self.current_model_probs, fisher_alpha=self.fisher_alpha, num_samples_update=self.num_samples_update_2, d_margin=self.d_margin, skip_train=not adapt)
+                outputs, num_counts_2, num_counts_1, updated_probs = self.forward_and_adapt_eata(x)
                 self.num_samples_update_2 += num_counts_2
                 self.num_samples_update_1 += num_counts_1
                 self.reset_model_probs(updated_probs)
@@ -80,6 +81,68 @@ class EATA(AdaptableModule):
         self.reset_model_probs(None)
         self.reset_bn()
 
+    @torch.enable_grad()  # ensure grads in possible no grad context for testing
+    def forward_and_adapt_eata(self, x):
+        """Forward and adapt model on batch of data.
+        Measure entropy of the model prediction, take gradients, and update params.
+
+        Returns:
+            outputs - model outputs;
+            num_remained - the number of reliable and non-redundant samples;
+            num_reliable - the number of reliable samples;
+            probs - the moving average  probability vector over all previous samples
+        """
+        # forward
+        outputs = self.model(x)
+
+        # adapt
+        entropys = softmax_entropy(outputs)
+
+        # filter unreliable samples
+        filter_ids_1 = torch.where(entropys < self.e_margin)
+        ids1 = filter_ids_1
+        ids2 = torch.where(ids1[0] > -0.1)
+        entropys = entropys[filter_ids_1]
+
+        # filter redundant samples
+        if self.current_model_probs is not None:
+            cosine_similarities = F.cosine_similarity(self.current_model_probs.unsqueeze(dim=0), outputs[filter_ids_1].softmax(1), dim=1)
+            filter_ids_2 = torch.where(torch.abs(cosine_similarities) < self.d_margin)
+            entropys = entropys[filter_ids_2]
+            ids2 = filter_ids_2
+            updated_probs = update_model_probs(self.current_model_probs, outputs[filter_ids_1][filter_ids_2].softmax(1))
+        else:
+            updated_probs = update_model_probs(self.current_model_probs, outputs[filter_ids_1].softmax(1))
+
+        coeff = 1 / (torch.exp(entropys.clone().detach() - self.e_margin))
+        # implementation version 1, compute loss, all samples backward (some unselected are masked)
+        entropys = entropys.mul(coeff)  # reweight entropy losses for diff. samples
+        loss = entropys.mean(0)
+        wandb.log({'entrop_min loss': loss}, commit=False)
+
+        """
+        # implementation version 2, compute loss, forward all batch, forward and backward selected samples again.
+        # if x[ids1][ids2].size(0) != 0:
+        #     loss = softmax_entropy(model(x[ids1][ids2])).mul(coeff).mean(0) # reweight entropy losses for diff. samples
+        """
+
+        if self.fishers is not None:
+            ewc_loss = 0
+            for name, param in self.model.named_parameters():
+                if name in self.fishers:
+                    ewc_loss += self.fisher_alpha * (self.fishers[name][0] * (param - self.fishers[name][1]) ** 2).sum()
+            loss += ewc_loss
+            wandb.log({'ewc_loss': ewc_loss.item()}, commit=False)
+
+        if x[ids1][ids2].size(0) != 0 :
+            if has_accum_bn_grad(self.model):
+                loss.backward()
+                self.optimizer.step()
+        self.optimizer.zero_grad()
+
+        return outputs, entropys.size(0), filter_ids_1[0].size(0), updated_probs
+
+
     @staticmethod
     def configure_model(model, local_bn=True, filter=None):
         """Configure model for use with eata."""
@@ -102,59 +165,6 @@ def softmax_entropy(x: torch.Tensor) -> torch.Tensor:
     x = x/ temprature
     x = -(x.softmax(1) * x.log_softmax(1)).sum(1)
     return x
-
-
-@torch.enable_grad()  # ensure grads in possible no grad context for testing
-def forward_and_adapt_eata(x, model, optimizer, fishers, e_margin, current_model_probs, fisher_alpha=50.0, d_margin=0.05, scale_factor=2, num_samples_update=0, skip_train=False):
-    """Forward and adapt model on batch of data.
-    Measure entropy of the model prediction, take gradients, and update params.
-
-    Returns: 
-        outputs - model outputs; 
-        num_remained - the number of reliable and non-redundant samples; 
-        num_reliable - the number of reliable samples;
-        probs - the moving average  probability vector over all previous samples
-    """
-    # forward
-    outputs = model(x)
-    # adapt
-    entropys = softmax_entropy(outputs)
-    # filter unreliable samples
-    filter_ids_1 = torch.where(entropys < e_margin)
-    ids1 = filter_ids_1
-    ids2 = torch.where(ids1[0]>-0.1)
-    entropys = entropys[filter_ids_1] 
-    # filter redundant samples
-    if current_model_probs is not None: 
-        cosine_similarities = F.cosine_similarity(current_model_probs.unsqueeze(dim=0), outputs[filter_ids_1].softmax(1), dim=1)
-        filter_ids_2 = torch.where(torch.abs(cosine_similarities) < d_margin)
-        entropys = entropys[filter_ids_2]
-        ids2 = filter_ids_2
-        updated_probs = update_model_probs(current_model_probs, outputs[filter_ids_1][filter_ids_2].softmax(1))
-    else:
-        updated_probs = update_model_probs(current_model_probs, outputs[filter_ids_1].softmax(1))
-    coeff = 1 / (torch.exp(entropys.clone().detach() - e_margin))
-    # implementation version 1, compute loss, all samples backward (some unselected are masked)
-    entropys = entropys.mul(coeff) # reweight entropy losses for diff. samples
-    loss = entropys.mean(0)
-    """
-    # implementation version 2, compute loss, forward all batch, forward and backward selected samples again.
-    # if x[ids1][ids2].size(0) != 0:
-    #     loss = softmax_entropy(model(x[ids1][ids2])).mul(coeff).mean(0) # reweight entropy losses for diff. samples
-    """
-    if fishers is not None:
-        ewc_loss = 0
-        for name, param in model.named_parameters():
-            if name in fishers:
-                ewc_loss += fisher_alpha * (fishers[name][0] * (param - fishers[name][1])**2).sum()
-        loss += ewc_loss
-    if x[ids1][ids2].size(0) != 0 and not skip_train:
-        if has_accum_bn_grad(model):
-            loss.backward()
-            optimizer.step()
-    optimizer.zero_grad()
-    return outputs, entropys.size(0), filter_ids_1[0].size(0), updated_probs
-
 
 def update_model_probs(current_model_probs, new_probs):
     if current_model_probs is None:

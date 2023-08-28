@@ -80,14 +80,16 @@ def prepare_cifar10_test_data(corruption, level, batch_size,
                               subset_size=None, workers=1, seed=None):
     rng = np.random.RandomState(seed) if seed is not None else np.random
 
-    normalize = trns.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    trans = trns.Compose([trns.ToTensor(), normalize])
+    # normalize = trns.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    # trans = trns.Compose([trns.ToTensor(), normalize])
+    trans = trns.Compose([trns.ToTensor()])
     if corruption == 'original':
         test_set = CIFAR10(DATA_PATHS['Cifar10'], train=False, transform=trans)
     elif corruption in CIFAR10_CORRUPTIONS:
         x_test, y_test = load_cifar10c(10_000, level, DATA_PATHS['Cifar10'], False, [corruption])
         # x_test, y_test = x_test.to(device), y_test.to(device)  # NOTE this will cause CUDA init error
-        test_set = LabeledDataset(x_test, y_test, transform=normalize)
+        # test_set = LabeledDataset(x_test, y_test, transform=normalize)
+        test_set = LabeledDataset(x_test, y_test)
     else:
         raise RuntimeError(f"Not supported corruption: {corruption}")
     if subset_size is not None:
@@ -105,14 +107,16 @@ def prepare_cifar100_test_data(corruption, level, batch_size,
                               subset_size=None, workers=1, seed=None):
     rng = np.random.RandomState(seed) if seed is not None else np.random
 
-    normalize = trns.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
-    trans = trns.Compose([trns.ToTensor(), normalize])
+    # normalize = trns.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
+    # trans = trns.Compose([trns.ToTensor(), normalize])
+    trans = trns.Compose([trns.ToTensor()])
     if corruption == 'original':
         test_set = CIFAR100(DATA_PATHS['Cifar100'], train=False, transform=trans, download=True)
     elif corruption in CIFAR10_CORRUPTIONS:
         x_test, y_test = load_cifar100c(10_000, level, DATA_PATHS['Cifar100'], False, [corruption])
         # x_test, y_test = x_test.to(device), y_test.to(device)  # NOTE this will cause CUDA init error
-        test_set = LabeledDataset(x_test, y_test, transform=normalize)
+        # test_set = LabeledDataset(x_test, y_test, transform=normalize)
+        test_set = LabeledDataset(x_test, y_test)
     else:
         raise RuntimeError(f"Not supported corruption: {corruption}")
     if subset_size is not None:

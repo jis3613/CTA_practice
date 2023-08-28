@@ -15,7 +15,7 @@ elif hostname.startswith('illidan'):
 elif hostname.startswith('ip-'):
     data_root = os.path.expanduser('~/data')
 else:
-    data_root = './data'
+    data_root = '/home/mipal/data'
 hub_root = os.path.join(data_root, 'cache/torch/hub')  # for torch.hub
 make_if_not_exist(data_root)
 make_if_not_exist(CHECKPOINT_ROOT)
@@ -27,8 +27,8 @@ DATA_PATHS = {
     "Cifar10": data_root + "/cifar10",
     "Cifar100": data_root + "/cifar100",
     "CIFAR-10_root": data_root + "/cifar10/",
-    "IN": data_root + "/image-net-all/ILSVRC2012/",
-    "IN-C": data_root + "/imagenet-c/",
+    "IN": data_root + "/ILSVRC2012/",
+    "IN-C": data_root + "/Imagenet-c/",
 }
 MODEL_PATHS = {
     'RobustBench_root': data_root + "/robustbench_models",

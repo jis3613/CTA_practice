@@ -78,7 +78,7 @@ class CoTTA(nn.Module):
             self.reset()
 
         for _ in range(self.steps):
-            outputs = self.forward_and_adapt(x, self.model, self.optimizer)
+            outputs = self.forward_and_adapt(x)
 
         return outputs
 
@@ -93,29 +93,37 @@ class CoTTA(nn.Module):
 
 
     @torch.enable_grad()  # ensure grads in possible no grad context for testing
-    def forward_and_adapt(self, x, model, optimizer):
+    def forward_and_adapt(self, x):
+        # Student Prediction
         outputs = self.model(x)
+
+        # Source-pretrained Prediction
+        with torch.no_grad():
+            anchor_prob = torch.nn.functional.softmax(self.model_anchor(x), dim=1).max(1)[0]
+
         # Teacher Prediction
-        anchor_prob = torch.nn.functional.softmax(self.model_anchor(x), dim=1).max(1)[0]
-        standard_ema = self.model_ema(x)
-        # Augmentation-averaged Prediction
-        N = 32 
-        outputs_emas = []
-        for i in range(N):
-            outputs_  = self.model_ema(self.transform(x)).detach()
-            outputs_emas.append(outputs_)
         # Threshold choice discussed in supplementary
         if anchor_prob.mean(0)<self.ap:
+            # Augmentation-averaged Prediction
+            N = 32
+            outputs_emas = []
+            for i in range(N):
+                outputs_ = self.model_ema(self.transform(x)).detach()
+                outputs_emas.append(outputs_)
             outputs_ema = torch.stack(outputs_emas).mean(0)
         else:
-            outputs_ema = standard_ema
+            outputs_ema = self.model_ema(x)
+
+        loss = (softmax_entropy(outputs, outputs_ema)).mean(0)
+
         # Student update
-        loss = (softmax_entropy(outputs, outputs_ema)).mean(0) 
         loss.backward()
-        optimizer.step()
-        optimizer.zero_grad()
+        self.optimizer.step()
+        self.optimizer.zero_grad()
+
         # Teacher update
         self.model_ema = update_ema_variables(ema_model = self.model_ema, model = self.model, alpha_teacher=self.mt)
+
         # Stochastic restore
         if True:
             for nm, m  in self.model.named_modules():
@@ -124,6 +132,7 @@ class CoTTA(nn.Module):
                         mask = (torch.rand(p.shape)<self.rst).float().cuda() 
                         with torch.no_grad():
                             p.data = self.model_state[f"{nm}.{npp}"] * mask + p * (1.-mask)
+
         return outputs_ema
 
     @staticmethod
@@ -165,6 +174,7 @@ class CoTTA(nn.Module):
             else:
                 m.requires_grad_(not bn_only)
         return model
+
 
 
 class CoTTA_ImageNet(nn.Module):

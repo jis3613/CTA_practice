@@ -8,6 +8,7 @@ from copy import deepcopy
 import torch
 import torch.nn as nn
 import torch.jit
+import wandb
 from collections import defaultdict
 
 from models.batch_norm import has_accum_bn_grad
@@ -37,7 +38,7 @@ class Tent(AdaptableModule):
             self.reset()
         if self.steps > 0:
             for _ in range(self.steps):
-                outputs = forward_and_adapt(x, self.model, self.optimizer)
+                outputs = self.forward_and_adapt(x)
         else:
             self.model.eval()
             with torch.no_grad():
@@ -57,6 +58,25 @@ class Tent(AdaptableModule):
         self.reset()
         self.reset_steps(1)
         self.reset_bn()
+
+    @torch.enable_grad()  # ensure grads in possible no grad context for testing
+    def forward_and_adapt(self, x):
+        """Forward and adapt model on batch of data.
+        Measure entropy of the model prediction, take gradients, and update params.
+        """
+        # forward
+        outputs = self.model(x)
+
+        # adapt
+        loss = softmax_entropy(outputs).mean(0)
+        wandb.log({'entrop_min loss': loss}, commit=False)
+
+        if has_accum_bn_grad(self.model):
+            loss.backward()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+        return outputs
 
     @staticmethod
     def collect_params(model, filter=None):
@@ -90,26 +110,6 @@ def energy(x: torch.Tensor) -> torch.Tensor:
     # if torch.rand(1) > 0.95:
     print('## energy ', x.mean(0).item())
     return x
-
-
-@torch.enable_grad()  # ensure grads in possible no grad context for testing
-def forward_and_adapt(x, model, optimizer):
-    """Forward and adapt model on batch of data.
-    Measure entropy of the model prediction, take gradients, and update params.
-    """
-    MemTracker.track('Before inference')
-    # forward
-    outputs = model(x)
-    MemTracker.track('Do inference')
-    # adapt
-    loss = softmax_entropy(outputs).mean(0)
-    if has_accum_bn_grad(model):
-        loss.backward()
-        MemTracker.track('Do backward')
-        optimizer.step()
-        optimizer.zero_grad()
-        MemTracker.track('After optimizer.step')
-    return outputs
 
 
 def copy_model_and_optimizer(model, optimizer):

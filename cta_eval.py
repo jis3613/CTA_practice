@@ -30,6 +30,7 @@ def get_args():
                         type=str, help='algorithms: src - source model;  '
                                        'bn - Use mini-batch unless merge_batches=True in group mode.')
     parser.add_argument('--no_log', action='store_true', help='disable logging.')
+    parser.add_argument('--exp_name', default='', type=str, help='the name of the exp')
 
     # path of data, output dir
     parser.add_argument('--data', default='IN', choices=['cifar10', 'IN', 'IN10', 'TIN', 'cifar100'],
@@ -52,13 +53,6 @@ def get_args():
     # batch config for eval
     parser.add_argument('--iters', default=-1, type=int, help='how many iterations for eval. [Default: -1 for all batches]')
     parser.add_argument('--batch_size', default=64, type=int, help='mini-batch size (default: 64)')
-    parser.add_argument('--support_batch', default=None, type=int, help='number of batches for support set (default: 1)')
-    parser.add_argument('--merge_batches', default=False, type=str2bool,
-                        help='whether to merge several batches of images into one batch. '
-                             'Effective w/ group eval. Use this to make a large batch from '
-                             'a mixture of data domains.')
-    parser.add_argument('--cur_batch', default=1, type=int, help='# of current-domain batches used'
-                                                                 'in pair evaluation.')
 
     # MECTA configuration
     parser.add_argument('--accum_bn', default=False, type=str2bool, help='accumulate BN stats.')
@@ -69,7 +63,6 @@ def get_args():
     parser.add_argument('--bn_dist_metric', default='skl', type=str,
                         choices=['kl', 'skl', 'skl2', 'simple', 'mmd'])
     parser.add_argument('--bn_dist_scale', default=1., type=float)
-
     parser.add_argument('--prune_q', default=0., type=float, help='q is the rate of parameters to remove. If is zero, all parameters will be kept.')
     parser.add_argument('--beta_thre', default=0., type=float, help='minimal threshold for beta to do caching. If is zero, all layers will cache.')
 
@@ -77,8 +70,6 @@ def get_args():
     parser.add_argument('--n_layer', type=int, default=None, help='For Tent&EATA, num of BN layers to train, start from the output.')
     parser.add_argument('--layer_grad_chkpt_segment', type=int, default=1, help='Num of segments per ResNet stage for gradient checkpointing.')
     args = parser.parse_args()
-    if args.eval_mode == 'pair':
-        assert args.cur_batch < args.support_batch
 
     # default args
     # eata settings
@@ -129,7 +120,7 @@ def main(args):
     print("All corruptions:", all_corruptions)
 
     print(args)
-    wandb.init(project='RobARM_cta-eval', name=f'{args.data}_{args.model}_{args.alg}',
+    wandb.init(project='Samsung-CTA_prac', name=f'{args.data}_{args.model}_{args.alg}_{args.exp_name}',
                config={**vars(args), 'all_corruptions': all_corruptions},
                mode='offline' if args.no_log else 'online')
 
@@ -195,9 +186,11 @@ def main(args):
         optimizer = torch.optim.SGD(params['affine'], args.lr, momentum=args.momentum)
         adapt_model = EATA(subnet, optimizer, fishers, args.fisher_alpha,
                            e_margin=args.e_margin, d_margin=args.d_margin)
+
     elif args.alg in ['cotta', 'cotta_bn']:
         from algorithm.cotta import CoTTA
         assert args.n_layer is None, "Not support partial layer."
+
         if args.alg == 'cotta_bn':
             subnet = CoTTA.configure_model(
                 subnet, bn_only=True, local_bn=not args.accum_bn)
@@ -222,6 +215,7 @@ def main(args):
             from algorithm.cotta import CoTTA_ImageNet as CoTTA
         else:
             raise NotImplementedError(f"data: {args.data}")
+
         adapt_model = CoTTA(subnet, optimizer, **cotta_kwargs)
     else:
         raise NotImplementedError(f'alg: {args.alg}')
@@ -235,8 +229,7 @@ def main(args):
             _, val_loader = prepare_data(
                 corrupt, args.level, args.batch_size, workers=args.workers)
 
-            acc, max_cache, avg_cache = validate(val_loader, adapt_model, args.device,
-                                      stop_at_step=args.iters)
+            acc, max_cache, avg_cache = validate(val_loader, adapt_model, args.device, stop_at_step=args.iters)
             info = f"[{i_corrupt}] {args.alg}@{corrupt} Acc: {acc:.2f}%"
             if max_cache is not None and avg_cache is not None:
                 info += f" Max Cache: {max_cache:.2f} MB, Avg Cache: {avg_cache:.2f} MB"
@@ -250,73 +243,11 @@ def main(args):
                            'num bwd smp': adapt_model.num_samples_update_2},
                           commit=False)
                 adapt_model.num_samples_update_1, adapt_model.num_samples_update_2 = 0, 0
+
             wandb.log({'acc': acc, 'max_cache': max_cache, 'avg_cache': avg_cache, 'corrupt': i_corrupt}, commit=True)
             accs.append(acc)
+            wandb.log({'avg acc': np.mean(accs)}, commit=False)
         wandb.summary['avg acc'] = np.mean(accs)
-
-    elif args.eval_mode == 'group':
-        domain_accs = []
-        for i_corrupt, corrupt in enumerate(all_corruptions):
-            print(f'[{i_corrupt}] {args.alg}@{corrupt}')
-
-            _, adapt_loader = prepare_data(
-                corrupt, args.level, args.batch_size, workers=args.workers)
-            _, val_loader = prepare_data(
-                corrupt, args.level, args.batch_size, workers=args.workers)
-
-            acc = group_validate(
-                val_loader, [adapt_loader], adapt_model, args.device, n_batch=args.support_batch,
-                merge_batches=args.merge_batches, stop_at_step=args.iters,
-            )
-            # print(f"DONE - Acc: {acc:.1f}±{acc_std:.1f}% | #Trial: {exe_cnt} ")
-            print(f"DONE - Acc: {acc:.1f}% ")
-            wandb.log({'acc': acc, 'corrupt': i_corrupt}, commit=True)
-
-            domain_accs.append(acc)
-        wandb.summary.update({
-            'avg acc': np.mean(domain_accs),
-            'worst acc': np.min(domain_accs),
-        })
-
-    elif args.eval_mode == 'pair':
-        domain_accs = []
-        for i_corrupt, corrupt in enumerate(all_corruptions):
-            acc_pre = np.zeros(len(all_corruptions)) - 1.
-            for i_pre_corrupt, pre_corrupt in enumerate(all_corruptions):
-                if i_pre_corrupt == i_corrupt:
-                    acc_pre[i_pre_corrupt] = np.nan
-                    continue
-                print(f'[{i_corrupt}] {args.alg}@{pre_corrupt}>>{corrupt}')
-
-                _, pre_adapt_loader = prepare_data(
-                    pre_corrupt, args.level, args.batch_size, workers=args.workers)
-                _, adapt_loader = prepare_data(
-                    corrupt, args.level, args.batch_size, workers=args.workers)
-                _, val_loader = prepare_data(
-                    corrupt, args.level, args.batch_size, workers=args.workers)
-
-                acc = group_validate(
-                    val_loader, [pre_adapt_loader, adapt_loader], adapt_model, args.device,
-                    adapt_batches=[args.support_batch-args.cur_batch, args.cur_batch-1],
-                    n_batch=args.support_batch, merge_batches=args.merge_batches,
-                    stop_at_step=args.iters,
-                )
-                # print(f"DONE - Acc: {acc:.1f}±{acc_std:.1f}% | #Trial: {exe_cnt} ")
-                print(f"DONE - Acc: {acc:.1f}% ")
-                wandb.log({'acc': acc, 'corrupt': i_corrupt}, commit=True)
-                acc_pre[i_pre_corrupt] = acc
-            avg_acc = np.nanmean(acc_pre)
-            worst_acc = np.nanmin(acc_pre)
-            worst_corr = np.nanargmin(acc_pre)
-            print(f"DONE>{corrupt} - Acc: {avg_acc:.1f}% | Worst Acc {worst_acc:.1}% "
-                  f"({worst_corr}: {all_corruptions[worst_corr]})")
-            wandb.log({'pair avg acc': avg_acc, 'pair worst acc': worst_acc,
-                       'worst corruption': worst_corr}, commit=True)
-            domain_accs.append(avg_acc)
-        wandb.summary.update({
-            'avg acc': np.mean(domain_accs),
-            'worst acc': np.min(domain_accs),
-        })
     else:
         raise NotImplementedError(f"eval mode: {args.eval_mode}")
 
