@@ -226,10 +226,10 @@ def main(args):
         for i_corrupt, corrupt in enumerate(all_corruptions):
             print('Current corrupt:', corrupt)
 
-            _, val_loader = prepare_data(
-                corrupt, args.level, args.batch_size, workers=args.workers)
+            _, val_loader = prepare_data(corrupt, args.level, args.batch_size, workers=args.workers)
 
             acc, max_cache, avg_cache = validate(val_loader, adapt_model, args.device, stop_at_step=args.iters)
+
             info = f"[{i_corrupt}] {args.alg}@{corrupt} Acc: {acc:.2f}%"
             if max_cache is not None and avg_cache is not None:
                 info += f" Max Cache: {max_cache:.2f} MB, Avg Cache: {avg_cache:.2f} MB"

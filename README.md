@@ -27,7 +27,7 @@ This repository is created to practice continual test-time adaptation code for e
 
 ### Quick Example
 
-Run the bash script file in scripts for contual test-time adaptation with different methods.
+Run the bash script file `train_cifar100.sh` in scripts for contual test-time adaptation with different methods.
 ```shell
 cd ..
 

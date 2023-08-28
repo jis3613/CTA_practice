@@ -48,8 +48,7 @@ class Tent(AdaptableModule):
     def reset(self):
         if self.model_state is None or self.optimizer_state is None:
             raise Exception("cannot reset without saved model/optimizer state")
-        load_model_and_optimizer(self.model, self.optimizer,
-                                 self.model_state, self.optimizer_state)
+        load_model_and_optimizer(self.model, self.optimizer, self.model_state, self.optimizer_state)
 
     def reset_steps(self, new_steps):
         self.steps = new_steps

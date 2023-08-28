@@ -111,8 +111,7 @@ def prepare_model(args, record_bn_cache=False):
         subnet = load_model(model_name=model_name, dataset='cifar100',
                             threat_model=ThreatModel.corruptions,
                             model_dir=MODEL_PATHS['RobustBench_root'])
-        subnet = make_checkpoint_resnet(
-            subnet, args.layer_grad_chkpt_segment, record_bn_cache=record_bn_cache)
+        subnet = make_checkpoint_resnet(subnet, args.layer_grad_chkpt_segment, record_bn_cache=record_bn_cache)
     else:
         raise NotImplementedError()
 
