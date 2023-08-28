@@ -7,7 +7,7 @@ All the credits for developing this code goes to the authors of "MECTA: Memory-E
 [paper](https://openreview.net/forum?id=N92hjSf5NNh) / [code](https://github.com/SonyAI/MECTA)
 ###### Copyright 2023, Sony AI, Sony Corporation of America, All rights reserved.
 
-This repository is created to practice continual test-time adaptation for educational use only.
+This repository is created to practice continual test-time adaptation code for educational use only.
 
 ## Getting Started
 
