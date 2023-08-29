@@ -27,15 +27,15 @@ This repository is created to practice continual test-time adaptation code for e
 
 ### Quick Example
 
-Run the bash script file `train_cifar100.sh` in scripts for contual test-time adaptation with different methods.
+Run the bash script file `train_cifar100c.sh` in scripts for contual test-time adaptation with different methods.
 ```shell
 cd ..
 
 ### Tent ###
 
 CUDA_VISIBLE_DEVICES=1 python cta_eval.py \
-    --data=cifar100 --alg=tent --model=rb_ResNeXt29_32x4d --batch_size=64 --lr=0.00025 \
-    --exp_name lr_0.00025_b64 \
+    --data=cifar100 --alg=tent --model=rb_ResNeXt29_32x4d --batch_size=64 --lr=0.0001 \
+    --exp_name lr_0.0002_b64 \
     --seed 2020
 
 ### EATA ###
@@ -48,8 +48,8 @@ CUDA_VISIBLE_DEVICES=1 python cta_eval.py \
 ### Cotta ###
 
 CUDA_VISIBLE_DEVICES=1 python cta_eval.py \
-    --data=cifar100 --alg=cotta --model=rb_ResNeXt29_32x4d --batch_size=64 --lr=0.0001 \
-    --exp_name lr_0.0001_b64 \
+    --data=cifar100 --alg=cotta --model=rb_ResNeXt29_32x4d --batch_size=64 --lr=0.001 \
+    --exp_name lr_0.001_b64 \
     --seed 2020
 ```
 
