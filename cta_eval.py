@@ -142,6 +142,7 @@ def main(args):
     if args.alg == 'src':
         subnet.eval()
         adapt_model = subnet
+
     elif args.alg == 'bn':
         subnet.train()
         if not args.accum_bn:
@@ -157,6 +158,7 @@ def main(args):
                 if isinstance(m, nn.BatchNorm2d):
                     m.requires_grad_(False)
         adapt_model = subnet
+
     elif args.alg == 'tent':
         from algorithm.tent import Tent
         subnet = Tent.configure_model(subnet, local_bn=not args.accum_bn, filter=args.n_layer)
@@ -164,6 +166,7 @@ def main(args):
         optimizer = torch.optim.SGD([{'params': params['affine']}], args.lr,
                                     momentum=args.momentum)
         adapt_model = Tent(subnet, optimizer)
+
     elif args.alg == 'eta':
         from algorithm.eata import EATA
         subnet = EATA.configure_model(
@@ -172,6 +175,7 @@ def main(args):
         optimizer = torch.optim.SGD([{'params': params['affine']},],
                                     args.lr, momentum=args.momentum)
         adapt_model = EATA(subnet, optimizer, e_margin=args.e_margin, d_margin=args.d_margin)
+
     elif args.alg == 'eata':
         from algorithm.eata import EATA, compute_fishers
         subnet = EATA.configure_model(subnet, local_bn=not args.accum_bn, filter=args.n_layer)

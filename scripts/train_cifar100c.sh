@@ -6,7 +6,7 @@ cd ..
 
 CUDA_VISIBLE_DEVICES=1 python cta_eval.py \
     --data=cifar100 --alg=tent --model=rb_ResNeXt29_32x4d --batch_size=64 --lr=0.0001 \
-    --exp_name lr_0.0002_b64 \
+    --exp_name lr_0.0001_b64 \
     --seed 2020
 
 #### EATA ###
